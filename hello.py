@@ -28,6 +28,7 @@ def plot_one_challenge(ax, task, train_or_test, input_or_output, index):
 # Function to plot the training and test data of a task
 def plot_task(task, title):
     num_train = len(task['train'])
+    print(num_train)
     num_test = len(task['test'])
 
     fig, axs = plt.subplots(2, num_train, figsize=(3 * num_train, 6))
@@ -77,10 +78,9 @@ cmap = colors.ListedColormap(
 norm = colors.Normalize(vmin=0, vmax=10)
 
 # Example usage: Plot the first training challenge and its solution
-for i in range(0, 1):
+for i in range(1, 2):
     task_name = list(training_solutions.keys())[i]
     task = training_challenges[task_name]
     solution = training_solutions[task_name]
-    
     plot_task(task, "Training Challenge")
     plot_solution(task, solution, "Training Solution")
