@@ -36,32 +36,53 @@ class BinaryGridTransformer(nn.Module):
         self.fc_out = nn.Linear(model_dim, 1)
         
     def forward(self, input_grids, output_grids, test_grid):
-        # Flatten and pad the grids
+        # input_grids, output_grids: [batch_size, num_examples, H, W]
+        # test_grid: [batch_size, 1, H, W]
+
         batch_size = input_grids.size(0)
-        input_grids = input_grids.view(batch_size, -1, 1)  # Flatten to (batch_size, H*W, 1)
-        output_grids = output_grids.view(batch_size, -1, 1)
-        test_grid = test_grid.view(batch_size, -1, 1)
+        num_examples = input_grids.size(1)
 
-        # Concatenate all grids together
-        combined_input = torch.cat([input_grids, output_grids, test_grid], dim=1)
+        # Flatten and pad the example grids (input + output) to the max_size (30x30)
+        input_grids = input_grids.view(batch_size * num_examples, -1, 1)  # Flatten to (batch_size * num_examples, H*W, 1)
+        output_grids = output_grids.view(batch_size * num_examples, -1, 1)
 
-        # Convert input to float type for embedding
-        combined_input = self.embedding(combined_input.float())
+        # Concatenate input and output grids for each example
+        combined_example_grids = torch.cat([input_grids, output_grids], dim=1)  # Shape: (batch_size * num_examples, 2*H*W, 1)
+        
+        # Process the test grid separately
+        test_grid = test_grid.view(batch_size, -1, 1)  # Flatten test grid: (batch_size, H*W, 1)
 
-        # Apply dropout after embedding
-        combined_input = self.dropout(combined_input)
+        # Embed and apply dropout to example grids
+        combined_example_grids = self.embedding(combined_example_grids.float())
+        combined_example_grids = self.dropout(combined_example_grids)
 
-        # Add positional encoding
-        combined_input = self.pos_encoder(combined_input)
+        # Add positional encoding to example grids
+        combined_example_grids = self.pos_encoder(combined_example_grids)
 
-        # Transformer encoding
-        transformer_output = self.transformer_encoder(combined_input)
+        # Transformer encoding for the combined example grids
+        transformer_output = self.transformer_encoder(combined_example_grids)
 
-        # Apply dropout before final output layer
-        transformer_output = self.dropout(transformer_output)
+        # Reshape transformer output to split it back into batch size and num_examples
+        transformer_output = transformer_output.view(batch_size, num_examples, -1, transformer_output.size(-1))
 
-        # Predict the output grid
-        predicted_output = self.fc_out(transformer_output[:, -test_grid.size(1):])  # Only take the test grid part
+        # Take the average across the num_examples axis
+        transformer_output = torch.mean(transformer_output, dim=1)  # Average across examples
+
+        # Embed and apply dropout to the test grid
+        test_grid = self.embedding(test_grid.float())
+        test_grid = self.dropout(test_grid)
+
+        # Add positional encoding to the test grid
+        test_grid = self.pos_encoder(test_grid)
+
+        # Concatenate transformer output from examples with the test grid
+        combined_test_example = torch.cat([transformer_output, test_grid], dim=1)
+
+        # Transformer encoding for the combined test input
+        combined_output = self.transformer_encoder(combined_test_example)
+
+        # Output prediction based on the test grid part
+        predicted_output = self.fc_out(combined_output[:, -test_grid.size(1):])  # Only take the test grid part
         predicted_output = predicted_output.view(batch_size, self.max_size, self.max_size)
 
         # Apply sigmoid to convert to binary
@@ -70,20 +91,20 @@ class BinaryGridTransformer(nn.Module):
 
         return predicted_output
 
-# Example usage:
-# Assume we have batch_size=2, input/output grids with size 12x12, and test grid with size 10x10
+
+''' # Example usage with up to 5 input/output grids and 1 test grid
 batch_size = 2
-input_grids = torch.randint(0, 2, (batch_size, 12, 12))
-output_grids = torch.randint(0, 2, (batch_size, 12, 12))
-test_grid = torch.randint(0, 2, (batch_size, 10, 10))
+input_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example input grids
+output_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example output grids
+test_grid = torch.randint(0, 2, (batch_size, 1, 10, 10))     # 1 test grid
 
 # Padding to 30x30
-input_grids_padded = F.pad(input_grids, (0, 18, 0, 18))
-output_grids_padded = F.pad(output_grids, (0, 18, 0, 18))
-test_grid_padded = F.pad(test_grid, (0, 20, 0, 20))
+input_grids_padded = F.pad(input_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
+output_grids_padded = F.pad(output_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
+test_grid_padded = F.pad(test_grid, (0, 20, 0, 20))      # (batch_size, 1, 30, 30)
 
-# Initialize and forward pass through the model
+# Initialize the model and forward pass
 model = BinaryGridTransformer()
 predicted_output = model(input_grids_padded, output_grids_padded, test_grid_padded)
 
-print(predicted_output.size())
+print(predicted_output.shape)  # Should be (batch_size, 30, 30) '''
