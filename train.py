@@ -1,16 +1,21 @@
-from collect_raw_data import load_json
 from binary_net import BinaryGridTransformer
+import json
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.nn as nn
 from torch.nn.utils.rnn import pad_sequence
 
-# Load your data from JSON files
-input_grids = load_json('drive/MyDrive/binary_data/training_input_grids.json')
-output_grids = load_json('drive/MyDrive/binary_data/training_output_grids.json')
-test_inputs = load_json('drive/MyDrive/binary_data/training_test_input_grids.json')
-test_outputs = load_json('drive/MyDrive/binary_data/training_test_output_grids.json')
+# Function to load JSON data
+def load_json(file_path):
+    with open(file_path) as f:
+        data = json.load(f)
+    return data
+
+# After training, save the model's state dict
+def save_model(model, path):
+    torch.save(model.state_dict(), path)
+    print(f'Model saved at {path}')
 
 # Pad each individual grid to 30x30
 def pad_grid(grid, target_size=(30, 30)):
@@ -22,14 +27,6 @@ def pad_grid(grid, target_size=(30, 30)):
 def process_instance_grids(instance_grids):
     return [pad_grid(torch.tensor(grid)) for grid in instance_grids]
 
-# Process each instance in the dataset
-input_grids_processed = [process_instance_grids(instance) for instance in input_grids]
-output_grids_processed = [process_instance_grids(instance) for instance in output_grids]
-test_inputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_inputs]
-test_outputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_outputs]
-
-print('Data Loaded')
-
 # Pad a batch of instances with varying grid counts
 def pad_batch_instances(grids_batch):
     # Each instance in grids_batch is a list of padded grids
@@ -39,16 +36,13 @@ def pad_batch_instances(grids_batch):
 
 # Define training loop with varying grid counts and grid sizes
 def train(model, input_grids, output_grids, test_inputs, test_outputs, num_epochs=20, batch_size=8, lr=0.001):
-    # Set the model to training mode
-    model.train()
     
-    # Define the loss function (binary cross-entropy)
-    criterion = nn.BCELoss()
-
-    # Optimizer (Adam optimizer)
+    print('Training Started')
+    
+    model.train()  # Set the model to training mode
+    criterion = nn.BCELoss()  # Binary cross-entropy loss
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
-    # Number of training instances
     num_samples = len(input_grids)
 
     for epoch in range(num_epochs):
@@ -62,44 +56,53 @@ def train(model, input_grids, output_grids, test_inputs, test_outputs, num_epoch
         test_outputs = [test_outputs[i] for i in perm]
 
         for i in range(0, num_samples, batch_size):
-            # Get the batch
+            print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {0 if i == 0 else (running_loss) / ((i) // batch_size):.4f}', end = '\r')
             inputs_batch = input_grids[i:i + batch_size]
             outputs_batch = output_grids[i:i + batch_size]
             test_inputs_batch = test_inputs[i:i + batch_size]
             test_outputs_batch = test_outputs[i:i + batch_size]
             
-            # Zero the parameter gradients
             optimizer.zero_grad()
 
-            # Pad the batches dynamically for variable-length input
             padded_inputs_batch = pad_batch_instances(inputs_batch)
             padded_outputs_batch = pad_batch_instances(outputs_batch)
 
-            # Convert test inputs/outputs to tensors and pad them to 30x30
             padded_test_inputs_batch = torch.stack([pad_grid(test_grid) for test_grid in test_inputs_batch])
             padded_test_outputs_batch = torch.stack([pad_grid(test_grid) for test_grid in test_outputs_batch])
-            
-            # Forward pass
+
+            # Forward pass (no thresholding during training)
             predicted_output = model(padded_inputs_batch, padded_outputs_batch, padded_test_inputs_batch)
+
+            padded_test_outputs_batch = padded_test_outputs_batch.view(batch_size, 30, 30).float().to(device)
             
-            # Reshape the test_outputs_batch to match the predicted_output shape
-            padded_test_outputs_batch = padded_test_outputs_batch.view(batch_size, 30, 30).float()
-            
-            # Compute the loss
+            # Compute loss between predicted probabilities and target binary values
             loss = criterion(predicted_output, padded_test_outputs_batch)
             
-            # Backward pass and optimization step
             loss.backward()
             optimizer.step()
 
-            # Accumulate the running loss
             running_loss += loss.item()
+            del padded_inputs_batch, padded_outputs_batch, padded_test_inputs_batch, padded_test_outputs_batch
 
-        # Print the average loss for this epoch
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (num_samples // batch_size):.4f}')
+
+    save_model(model, 'models/binary_net.pth')
 
     print("Training complete!")
 
+# Load your data from JSON files
+input_grids = load_json('binary_data/training_input_grids.json')
+output_grids = load_json('binary_data/training_output_grids.json')
+test_inputs = load_json('binary_data/training_test_input_grids.json')
+test_outputs = load_json('binary_data/training_test_output_grids.json')
+
+# Process each instance in the dataset
+input_grids_processed = [process_instance_grids(instance) for instance in input_grids]
+output_grids_processed = [process_instance_grids(instance) for instance in output_grids]
+test_inputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_inputs]
+test_outputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_outputs]
+
+print('Data Loaded')
 
 # Initialize the model, set the device (GPU if available)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -112,4 +115,4 @@ test_inputs_processed = [grid.to(device) for grid in test_inputs_processed]
 test_outputs_processed = [grid.to(device) for grid in test_outputs_processed]
 
 # Train the model
-train(model, input_grids_processed, output_grids_processed, test_inputs_processed, test_outputs_processed, num_epochs=10, batch_size=16)
+train(model, input_grids_processed, output_grids_processed, test_inputs_processed, test_outputs_processed, num_epochs=10, batch_size=1)

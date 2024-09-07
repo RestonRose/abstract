@@ -1,4 +1,4 @@
-from collect_raw_data import load_json, save_to_json
+from data_pipeline import load_json, save_to_json
 import json
 
 # load the raw data
