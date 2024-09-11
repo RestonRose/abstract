@@ -15,7 +15,6 @@ def load_json(file_path):
 # After training, save the model's state dict
 def save_model(model, path):
     torch.save(model.state_dict(), path)
-    print(f'Model saved at {path}')
 
 # Pad each individual grid to 30x30
 def pad_grid(grid, target_size=(30, 30)):
@@ -35,10 +34,11 @@ def pad_batch_instances(grids_batch):
     return pad_sequence(padded_batch, batch_first=True)
 
 # Define training loop with varying grid counts and grid sizes
-def train(model, input_grids, output_grids, test_inputs, test_outputs, num_epochs=20, batch_size=8, lr=0.001):
+def train(model, device, input_grids, output_grids, test_inputs, test_outputs, data, embed_dim=16, num_layers=4, dropout=0.4, num_epochs=20, batch_size=8, lr=0.001):
     
     print('Training Started')
-    
+    min_loss = float('inf')
+
     model.train()  # Set the model to training mode
     criterion = nn.BCELoss()  # Binary cross-entropy loss
     optimizer = optim.Adam(model.parameters(), lr=lr)
@@ -56,7 +56,7 @@ def train(model, input_grids, output_grids, test_inputs, test_outputs, num_epoch
         test_outputs = [test_outputs[i] for i in perm]
 
         for i in range(0, num_samples, batch_size):
-            print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {0 if i == 0 else (running_loss) / ((i) // batch_size):.4f}', end = '\r')
+            print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {0 if i == 0 else (running_loss) / ((i) // batch_size):.4f} - {i*100/ (num_samples-1):.1f}%', end = '\r')
             inputs_batch = input_grids[i:i + batch_size]
             outputs_batch = output_grids[i:i + batch_size]
             test_inputs_batch = test_inputs[i:i + batch_size]
@@ -84,35 +84,35 @@ def train(model, input_grids, output_grids, test_inputs, test_outputs, num_epoch
             running_loss += loss.item()
             del padded_inputs_batch, padded_outputs_batch, padded_test_inputs_batch, padded_test_outputs_batch
 
-        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (num_samples // batch_size):.4f}')
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {running_loss / (num_samples // batch_size):.4f} - {num_samples*100/ (num_samples):.1f}%')
+        if running_loss / (num_samples // batch_size) < min_loss:
+            save_model(model, f'models/ed{embed_dim}nl{num_layers}dr{dropout}dt{data}.pth')
 
-    save_model(model, 'models/binary_net.pth')
 
-    print("Training complete!")
+if __name__ == '__main__':
+    # Load your data from JSON files
+    input_grids = load_json('binary_data/training_input_grids.json')
+    output_grids = load_json('binary_data/training_output_grids.json')
+    test_inputs = load_json('binary_data/training_test_input_grids.json')
+    test_outputs = load_json('binary_data/training_test_output_grids.json')
 
-# Load your data from JSON files
-input_grids = load_json('binary_data/training_input_grids.json')
-output_grids = load_json('binary_data/training_output_grids.json')
-test_inputs = load_json('binary_data/training_test_input_grids.json')
-test_outputs = load_json('binary_data/training_test_output_grids.json')
+    # Process each instance in the dataset
+    input_grids_processed = [process_instance_grids(instance) for instance in input_grids[:5]]
+    output_grids_processed = [process_instance_grids(instance) for instance in output_grids[:5]]
+    test_inputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_inputs[:5]]
+    test_outputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_outputs[:5]]
 
-# Process each instance in the dataset
-input_grids_processed = [process_instance_grids(instance) for instance in input_grids]
-output_grids_processed = [process_instance_grids(instance) for instance in output_grids]
-test_inputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_inputs]
-test_outputs_processed = [pad_grid(torch.tensor(instance)) for instance in test_outputs]
+    print('Data Loaded')
 
-print('Data Loaded')
+    # Initialize the model, set the device (GPU if available)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = BinaryGridTransformer().to(device)
 
-# Initialize the model, set the device (GPU if available)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = BinaryGridTransformer().to(device)
+    # Move data to the appropriate device
+    input_grids_processed = [[grid.to(device) for grid in instance] for instance in input_grids_processed]
+    output_grids_processed = [[grid.to(device) for grid in instance] for instance in output_grids_processed]
+    test_inputs_processed = [grid.to(device) for grid in test_inputs_processed]
+    test_outputs_processed = [grid.to(device) for grid in test_outputs_processed]
 
-# Move data to the appropriate device
-input_grids_processed = [[grid.to(device) for grid in instance] for instance in input_grids_processed]
-output_grids_processed = [[grid.to(device) for grid in instance] for instance in output_grids_processed]
-test_inputs_processed = [grid.to(device) for grid in test_inputs_processed]
-test_outputs_processed = [grid.to(device) for grid in test_outputs_processed]
-
-# Train the model
-train(model, input_grids_processed, output_grids_processed, test_inputs_processed, test_outputs_processed, num_epochs=10, batch_size=1)
+    # Train the model
+    train(model, device, input_grids_processed, output_grids_processed, test_inputs_processed, test_outputs_processed, num_epochs=1, batch_size=1)

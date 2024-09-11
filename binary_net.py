@@ -79,19 +79,20 @@ class BinaryGridTransformer(nn.Module):
         return predicted_output
 
 
-'''# Example usage with up to 5 input/output grids and 1 test grid
-batch_size = 2
-input_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example input grids
-output_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example output grids
-test_grid = torch.randint(0, 2, (batch_size, 1, 10, 10))     # 1 test grid
+if __name__ == '__main__':
+    # Example usage with up to 5 input/output grids and 1 test grid
+    batch_size = 2
+    input_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example input grids
+    output_grids = torch.randint(0, 2, (batch_size, 5, 12, 12))  # 5 example output grids
+    test_grid = torch.randint(0, 2, (batch_size, 1, 10, 10))     # 1 test grid
 
-# Padding to 30x30
-input_grids_padded = F.pad(input_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
-output_grids_padded = F.pad(output_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
-test_grid_padded = F.pad(test_grid, (0, 20, 0, 20))      # (batch_size, 1, 30, 30)
+    # Padding to 30x30
+    input_grids_padded = F.pad(input_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
+    output_grids_padded = F.pad(output_grids, (0, 18, 0, 18))  # (batch_size, num_examples, 30, 30)
+    test_grid_padded = F.pad(test_grid, (0, 20, 0, 20))      # (batch_size, 1, 30, 30)
 
-# Initialize the model and forward pass
-model = BinaryGridTransformer()
-predicted_output = model(input_grids_padded, output_grids_padded, test_grid_padded)
+    # Initialize the model and forward pass
+    model = BinaryGridTransformer()
+    predicted_output = model(input_grids_padded, output_grids_padded, test_grid_padded)
 
-print(predicted_output.requires_grad)'''
+    print(predicted_output.size())
